@@ -102,6 +102,8 @@ float temp = 0;
 int hum = 0;
 long val;
 
+int displaypage = 0;
+
 // Calibration values
 float temp_offset_c = -3.2;
 int hum_offset = 14;
@@ -112,6 +114,7 @@ void setup()
   sht.init();
   sht.setAccuracy(SHTSensor::SHT_ACCURACY_MEDIUM);
   u8g2.setBusClock(100000);
+  u8g2.enableUTF8Print();
   u8g2.begin();
 
   // brightness, 0 - 255
@@ -119,13 +122,12 @@ void setup()
 
   updateOLED();
 
-    if (connectWIFI) {
+  if (connectWIFI) {
     connectToWifi();
   }
   updateOLED2("Warm Up", "Serial#", String(ESP.getChipId(), HEX));
   ag.CO2_Init();
   ag.PMS_Init();
-  //ag.TMP_RH_Init(0x44);
 }
 
 
@@ -136,34 +138,34 @@ void loop()
   updateCo2();
   updatePm();
   updateTempHum();
-  //sendToHubitat();
+  sendToHubitat();
   //sendToServer();
 }
 
 void updateCo2()
 {
-    if (currentMillis - previousCo2 >= co2Interval) {
-      previousCo2 += co2Interval;
-      Co2 = ag.getCO2_Raw();
-      Serial.println(String(Co2));
-    }
+  if (currentMillis - previousCo2 >= co2Interval) {
+    previousCo2 += co2Interval;
+    Co2 = ag.getCO2_Raw();
+    Serial.println(String(Co2));
+  }
 }
 
 void updatePm()
 {
-    if (currentMillis - previousPm >= pmInterval) {
-      previousPm += pmInterval;
-      pm1 = ag.getPM1_Raw();
-      pm2_5 = ag.getPM2_Raw();
-      pm10 = ag.getPM10_Raw();
-      Serial.println("PM1: " + String(pm1) + " PM 2.5: " + String(pm2_5) + " PM10: " + String(pm10));
-    }
+  if (currentMillis - previousPm >= pmInterval) {
+    previousPm += pmInterval;
+    pm1 = ag.getPM1_Raw();
+    pm2_5 = ag.getPM2_Raw();
+    pm10 = ag.getPM10_Raw();
+    Serial.println("PM1: " + String(pm1) + " PM 2.5: " + String(pm2_5) + " PM10: " + String(pm10));
+  }
 }
 
 void updateTempHum()
 {
-    if (currentMillis - previousTempHum >= tempHumInterval) {
-      previousTempHum += tempHumInterval;
+  if (currentMillis - previousTempHum >= tempHumInterval) {
+    previousTempHum += tempHumInterval;
     if (sht.readSample()) {
       Serial.print("SHT:\n");
       Serial.print("  RH: ");
@@ -179,7 +181,7 @@ void updateTempHum()
       } else {
         Serial.println("Invalid temp or humidity: " + String(sht.getTemperature()) + " " + sht.getHumidity());
 
-        if ( ++badReadingCount >= 10 ) {
+        if (++badReadingCount >= 10) {
           Serial.println("Reset due to 10 invalid readings");
           ESP.restart();
         }
@@ -190,31 +192,6 @@ void updateTempHum()
 }
 
 void updateOLED() {
-   if (currentMillis - previousOled >= oledInterval) {
-     previousOled += oledInterval;
-
-    String ln1;
-    String ln2;
-    String ln3;
-
-    if (inUSAQI){
-       ln1 = "AQI:" + String(PM_TO_AQI_US(pm2_5)) ;
-    } else {
-       ln1 = "PM: " + String(pm2_5) +"ug" ;
-    }
-
-    ln2 = "CO2:" + String(Co2);
-
-      if (inF) {
-        ln3 = String((temp* 9 / 5) + 32).substring(0,4) + " " + String(hum)+"%";
-        } else {
-        ln3 = String(temp).substring(0,4) + " " + String(hum)+"%";
-       }
-     updateOLED2(ln1, ln2, ln3);
-   }
-}
-
-void updateOLED2(String ln1, String ln2, String ln3) {
   // OLED wear leveling
   if (currentMillis - previousInvert >= invertInterval) {
     previousInvert = currentMillis;
@@ -224,11 +201,99 @@ void updateOLED2(String ln1, String ln2, String ln3) {
       inverted = true;
     }
   }
-  
+
+  if (currentMillis - previousOled >= oledInterval) {
+    previousOled = currentMillis;
+
+    switch (displaypage) {
+      case 0:
+        if (inUSAQI){
+          showFancyText("CO2", String(Co2), "PM\n2.5", String(PM_TO_AQI_US(pm2_5)));
+        } else {
+          showFancyText("CO2", String(Co2), "PM", String(pm2_5) + "ug");
+        }
+        displaypage = 1;
+        break;
+      case 1:
+        String tempLabel = "°C";
+        float tempToPrint = temp;
+        if (inF) {
+          tempLabel = "°F";
+          tempToPrint = (temp * 9 / 5) + 32;
+        }
+
+        showFancyText(tempLabel, String(tempToPrint, 1), "Hum", String(hum) + "%");
+        displaypage = 0;
+        break;
+    }
+  }
+}
+
+void printFancyData(String text, bool top) {
+    // Horrible font size brute-force nonsense that works well enough
+    uint8 font_height_px = 19;
+    uint8 x_inset = 0;
+    uint8 y_inset = 0;
+    u8g2.setFont(u8g2_font_helvR18_tf);
+    if (u8g2.getUTF8Width(text.c_str()) >= 40)
+    {
+      font_height_px = 14;
+      x_inset = 1;
+      y_inset = 0;
+      u8g2.setFont(u8g2_font_helvR14_tf);
+    }
+    if (u8g2.getUTF8Width(text.c_str()) >= 40)
+    {
+      font_height_px = 12;
+      x_inset = 0;
+      y_inset = 1;
+      u8g2.setFont(u8g2_font_helvR12_tf);
+    }
+    
+    const uint8 label_start_x = 64 - x_inset;
+    const uint8 right_align_offset = u8g2.getUTF8Width(text.c_str());
+    const uint8 label_start_y = font_height_px + y_inset;
+
+    if (top) {
+      u8g2.drawUTF8(label_start_x - right_align_offset, label_start_y, text.c_str());
+    } else {
+      u8g2.drawUTF8(label_start_x - right_align_offset, 24 + label_start_y, text.c_str());
+    }
+}
+
+void showFancyText(String label1, String data1, String label2, String data2) {
   u8g2.firstPage();
 
   do {
-    // OLED wear leveling
+    if (inverted) {
+      u8g2.setDrawColor(1);
+      u8g2.drawBox(0, 0, 64, 48);
+      u8g2.setDrawColor(0);
+    } else {
+      u8g2.setDrawColor(0);
+      u8g2.drawBox(0, 0, 64, 48);
+      u8g2.setDrawColor(1);
+    }
+
+    const uint8 font_height_px = 8;
+    u8g2.setFont(u8g2_font_helvR08_tf);
+
+    const uint8 label_start_x = 1;
+    const uint8 y_inset = 1;
+    const uint8 label_start_y = font_height_px + y_inset;
+
+    u8g2.drawUTF8(label_start_x, label_start_y, String(label1).c_str());
+    u8g2.drawUTF8(label_start_x, 24 + label_start_y, String(label2).c_str());
+
+    printFancyData(data1, true);
+    printFancyData(data2, false);
+  } while ( u8g2.nextPage() );
+}
+
+void updateOLED2(String ln1, String ln2, String ln3) {  
+  u8g2.firstPage();
+
+  do {
     if (inverted) {
       u8g2.setDrawColor(1);
       u8g2.drawBox(0, 0, 64, 48);
@@ -253,7 +318,7 @@ void getURL(String URL) {
   http.begin(client, URL);
   http.addHeader("content-type", "application/json");
   int httpCode = http.GET();
-  String response = http.getString();
+  // String response = http.getString();
   //Serial.println("Hubitat: " + httpCode);
   //Serial.println("Hubitat: " + response);
   http.end();
@@ -270,13 +335,24 @@ void sendToHubitat() {
 
     if (WiFi.status() == WL_CONNECTED) {
       // TODO POST would be nice
-      getURL(urlBase + device + "setCarbonDioxide/" + String(Co2) + token);
+      if (Co2 > 0) {
+        getURL(urlBase + device + "setCarbonDioxide/" + String(Co2) + token);
+      }
       getURL(urlBase + device + "setPM1/" + String(pm1) + token);
       getURL(urlBase + device + "setPM2_5/" + String(pm2_5) + token);
       getURL(urlBase + device + "setPM10/" + String(pm10) + token);
       getURL(urlBase + device + "setAQI_PM2_5/" + String(PM_TO_AQI_US(pm2_5)) + token);
-      getURL(urlBase + device + "setTemperature/" + String((temp * 9 / 5) + 32) + token);
-      getURL(urlBase + device + "setRelativeHumidity/" + String(hum) + token);
+
+      float tempToSend = temp;
+      if (inF) {
+        tempToSend = (temp * 9 / 5) + 32;
+      }
+      getURL(urlBase + device + "setTemperature/" + String(tempToSend) + token);
+
+      if (hum > 0) {
+        getURL(urlBase + device + "setRelativeHumidity/" + String(hum) + token);
+      }
+
       Serial.println("Sent to Hubitat");
     }
     else {
