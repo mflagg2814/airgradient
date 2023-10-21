@@ -335,13 +335,24 @@ void sendToHubitat() {
 
     if (WiFi.status() == WL_CONNECTED) {
       // TODO POST would be nice
-      getURL(urlBase + device + "setCarbonDioxide/" + String(Co2) + token);
+      if (Co2 > 0) {
+        getURL(urlBase + device + "setCarbonDioxide/" + String(Co2) + token);
+      }
       getURL(urlBase + device + "setPM1/" + String(pm1) + token);
       getURL(urlBase + device + "setPM2_5/" + String(pm2_5) + token);
       getURL(urlBase + device + "setPM10/" + String(pm10) + token);
       getURL(urlBase + device + "setAQI_PM2_5/" + String(PM_TO_AQI_US(pm2_5)) + token);
-      getURL(urlBase + device + "setTemperature/" + String((temp * 9 / 5) + 32) + token);
-      getURL(urlBase + device + "setRelativeHumidity/" + String(hum) + token);
+
+      float tempToSend = temp;
+      if (inF) {
+        tempToSend = (temp * 9 / 5) + 32;
+      }
+      getURL(urlBase + device + "setTemperature/" + String(tempToSend) + token);
+
+      if (hum > 0) {
+        getURL(urlBase + device + "setRelativeHumidity/" + String(hum) + token);
+      }
+
       Serial.println("Sent to Hubitat");
     }
     else {
